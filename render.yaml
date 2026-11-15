@@ -1,0 +1,10 @@
+services:
+  - type: web
+    runtime: static
+    name: mariage-aziz-lynda
+    buildCommand: echo "Site statique, rien a construire"
+    staticPublishPath: .
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=300
