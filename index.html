@@ -14,6 +14,7 @@
 <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preload" as="image" href="images/couple.jpg">
+<link rel="preload" as="audio" href="audio/melodie.mp3" type="audio/mpeg">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -990,82 +991,46 @@ footer .bg{position:absolute;width:300px;opacity:.08;left:50%;top:-90px;transfor
 
   /* ---------- Mélodie romantique (composée en direct, Web Audio) ---------- */
   const Music = (function(){
-    let ac, master, rev, timer, nextBar=0, bar=0, on=false;
-    const mtof = m => 440*Math.pow(2,(m-69)/12);
-    // progression (3/4) : C  Am  F  G  C  Am  Dm7  G7
-    const chords = [[48,52,55,59],[45,48,52,55],[41,45,48,52],[43,47,50,55],[48,52,55,59],[45,48,52,55],[50,53,57,60],[43,47,50,53]];
-    // mélodie : [note midi, temps de départ (en noires), durée]
-    const melody = [
-      [[76,0,2],[79,2,1]],
-      [[81,0,2],[79,2,1]],
-      [[77,0,1],[76,1,1],[72,2,1]],
-      [[74,0,3]],
-      [[76,0,1],[79,1,1],[84,2,1]],
-      [[81,0,2],[76,2,1]],
-      [[77,0,1],[76,1,1],[74,2,1]],
-      [[74,0,2],[71,2,1]]
-    ];
-    const BEAT = 0.62, BAR = BEAT*3;
-    function impulse(){
-      const len = ac.sampleRate*3, buf = ac.createBuffer(2,len,ac.sampleRate);
-      for(let c=0;c<2;c++){ const d=buf.getChannelData(c); for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.6); }
-      return buf;
+    // Musique choisie par les mariés : démarre doucement, volume volontairement bas
+    const MAX = 0.42;             // volume final (0 à 1) : doux
+    const audio = new Audio('audio/melodie.mp3');
+    audio.loop = true; audio.preload = 'auto'; audio.setAttribute('playsinline','');
+    let ac, gain, on = false, wired = false;
+    function wire(){
+      if (wired) return; wired = true;
+      try{
+        ac = new (window.AudioContext||window.webkitAudioContext)();
+        const src = ac.createMediaElementSource(audio);
+        gain = ac.createGain(); gain.gain.value = 0;
+        src.connect(gain).connect(ac.destination);
+      }catch(e){ ac = null; audio.volume = 0; }
     }
-    function bell(f,t,dur,vel){ // timbre boîte à musique / piano doux
-      const g=ac.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vel,t+0.012); g.gain.exponentialRampToValueAtTime(0.0008,t+dur);
-      [[1,'sine',1],[2,'sine',.28],[3,'triangle',.08],[4.01,'sine',.05]].forEach(([k,type,a])=>{
-        const o=ac.createOscillator(), og=ac.createGain(); o.type=type; o.frequency.value=f*k; og.gain.value=a;
-        o.connect(og).connect(g); o.start(t); o.stop(t+dur+0.05);
-      });
-      g.connect(master); g.connect(rev);
-    }
-    function pad(notes,t,dur){
-      notes.forEach(m=>{
-        const o=ac.createOscillator(), g=ac.createGain(); o.type='sine'; o.frequency.value=mtof(m); o.detune.value=Math.random()*8-4;
-        g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.022,t+0.8); g.gain.setValueAtTime(0.022,t+dur-0.6); g.gain.linearRampToValueAtTime(0,t+dur+0.4);
-        o.connect(g); g.connect(master); g.connect(rev); o.start(t); o.stop(t+dur+0.5);
-      });
-    }
-    function scheduleBar(t,i){
-      const c = chords[i%8], r=c[0];
-      pad(c.map(n=>n+12),t,BAR);
-      bell(mtof(r-12),t,2.6,0.10);
-      const arp=[r,c[2],c[1]+12,c[2]+12,c[3]+12,c[1]+12];
-      arp.forEach((m,k)=>bell(mtof(m),t+k*BEAT/2,1.6,0.045));
-      melody[i%8].forEach(([m,st,d])=>bell(mtof(m),t+st*BEAT,1.2+d*BEAT,0.11));
-      if(i%16===15) bell(mtof(84),t+BAR-0.2,3,0.05);
-    }
-    function loop(){
-      while(nextBar < ac.currentTime + 1.2){ scheduleBar(nextBar, bar++); nextBar += BAR; }
+    function ramp(to, secs){
+      if (ac && gain){
+        const t = ac.currentTime; gain.gain.cancelScheduledValues(t);
+        gain.gain.setValueAtTime(gain.gain.value, t); gain.gain.linearRampToValueAtTime(to, t + secs);
+      } else {
+        const from = audio.volume, steps = 30; let i = 0;
+        clearInterval(audio._r); audio._r = setInterval(()=>{ i++; audio.volume = Math.max(0,Math.min(1, from + (to-from)*i/steps)); if(i>=steps) clearInterval(audio._r); }, secs*1000/steps);
+      }
     }
     function start(){
-      try{
-        if(!ac){
-          ac = new (window.AudioContext||window.webkitAudioContext)();
-          master = ac.createGain(); master.gain.value = 0;
-          const comp = ac.createDynamicsCompressor(); master.connect(comp).connect(ac.destination);
-          rev = ac.createConvolver(); rev.buffer = impulse();
-          const rg = ac.createGain(); rg.gain.value = 0.45; rev.connect(rg).connect(master);
-          nextBar = ac.currentTime + 0.15;
-        }
-        ac.resume();
-        master.gain.cancelScheduledValues(ac.currentTime);
-        master.gain.setValueAtTime(master.gain.value, ac.currentTime);
-        master.gain.linearRampToValueAtTime(0.85, ac.currentTime + 3);
-        if(nextBar < ac.currentTime) nextBar = ac.currentTime + 0.1;
-        clearInterval(timer); timer = setInterval(loop, 250); loop();
-        on = true;
-      }catch(e){ on = false; }
+      wire();
+      try{ if (ac) ac.resume(); }catch(e){}
+      const p = audio.play();
+      on = true;
+      if (p && p.catch) p.catch(()=>{ on = false; if (typeof syncBtn==='function') syncBtn(); });
+      ramp(MAX, 5);              // montée progressive sur 5 secondes
       return on;
     }
     function stop(){
-      if(!ac) return; on=false;
-      master.gain.cancelScheduledValues(ac.currentTime);
-      master.gain.setValueAtTime(master.gain.value, ac.currentTime);
-      master.gain.linearRampToValueAtTime(0, ac.currentTime + 0.8);
-      setTimeout(()=>{ if(!on){ clearInterval(timer); ac.suspend(); } }, 900);
+      on = false; ramp(0, 0.8);
+      setTimeout(()=>{ if(!on) audio.pause(); }, 900);
     }
-    document.addEventListener('visibilitychange',()=>{ if(!ac) return; if(document.hidden){ clearInterval(timer); ac.suspend(); } else if(on){ start(); } });
+    document.addEventListener('visibilitychange',()=>{
+      if (document.hidden){ if(on) audio.pause(); }
+      else if (on){ audio.play().catch(()=>{}); }
+    });
     return {start, stop, get on(){ return on; }};
   })();
   const mBtn = document.getElementById('music');
